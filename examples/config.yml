@@ -1,0 +1,43 @@
+# MD-to-Drive Configuration Example
+# Save as .md-to-drive.yml in your project root
+
+# Google Drive credentials
+credentials: credentials.json
+
+# Default Google Drive folder ID (optional)
+# Get this from the folder URL: https://drive.google.com/drive/folders/{FOLDER_ID}
+drive_folder_id: "your-folder-id-here"
+
+# Paths to sync
+sync:
+  # Sync entire docs directory
+  - path: docs/
+    recursive: true
+    exclude:
+      - "*.draft.md"
+      - "temp/"
+      - ".DS_Store"
+
+  # Sync specific file with custom name
+  - path: README.md
+    name: "Project README"
+
+  # Sync CSV reports
+  - path: reports/
+    recursive: false
+    include:
+      - "*.csv"
+
+# Watch mode settings (future feature)
+watch:
+  enabled: false
+  interval: 60  # seconds
+  paths:
+    - docs/
+    - README.md
+
+# Export settings (future feature)
+export:
+  format: markdown  # or 'csv' for sheets
+  output_dir: ./exported
+  preserve_structure: true

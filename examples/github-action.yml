@@ -1,0 +1,51 @@
+# GitHub Action Example: Auto-sync docs on push
+# Save as .github/workflows/sync-docs.yml
+
+name: Sync Docs to Google Drive
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**/*.md'
+      - '**/*.csv'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install md-to-drive
+        run: |
+          pip install md-to-drive
+
+      - name: Create credentials file
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          echo "$GOOGLE_CREDENTIALS" > credentials.json
+
+      - name: Sync to Google Drive
+        env:
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+        run: |
+          md-to-drive sync docs/ --folder-id $GOOGLE_DRIVE_FOLDER_ID
+
+      - name: Clean up credentials
+        if: always()
+        run: |
+          rm -f credentials.json
+
+# Setup:
+# 1. Add GOOGLE_CREDENTIALS secret (contents of credentials.json)
+# 2. Add GOOGLE_DRIVE_FOLDER_ID secret (your folder ID)
+# Settings → Secrets and variables → Actions → New repository secret
