@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: md_to_drive_sync
+    volumes:
+      - ./docs:/app/docs:ro              # Mount docs directory
+      - ./README.md:/app/README.md:ro    # Mount README
+      - ./credentials.json:/app/credentials.json:ro  # Mount credentials
+    env_file:
+      - .env
+    working_dir: /app
