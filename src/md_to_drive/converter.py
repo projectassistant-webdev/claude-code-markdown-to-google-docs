@@ -2,6 +2,8 @@
 File conversion utilities for Markdown and CSV
 """
 
+import re
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -10,21 +12,86 @@ class MarkdownConverter:
     """Convert Markdown files to Google Docs format"""
 
     @staticmethod
-    def prepare_for_upload(md_file: Path) -> dict:
+    def preprocess_markdown_for_google_docs(md_content: str) -> str:
         """
-        Prepare markdown file for upload
+        Preprocess markdown to make code blocks more readable in Google Docs.
+        Wraps code blocks with visual markers that Google Docs will preserve.
+
+        Args:
+            md_content: Raw markdown content
+
+        Returns:
+            Processed markdown content with formatted code blocks
+        """
+        # Process fenced code blocks (```language ... ```)
+        def replace_code_block(match):
+            language = match.group(1) or ''
+            code = match.group(2)
+
+            # Add visual markers around code blocks
+            header = f"═══ CODE ({language.upper()}) ═══" if language else "═══ CODE ═══"
+            footer = "═" * len(header)
+
+            # Indent code slightly for better visibility
+            indented_code = '\n'.join('    ' + line for line in code.split('\n'))
+
+            return f"\n{header}\n{indented_code}\n{footer}\n"
+
+        # Replace fenced code blocks
+        md_content = re.sub(
+            r'```(\w+)?\n(.*?)```',
+            replace_code_block,
+            md_content,
+            flags=re.DOTALL
+        )
+
+        # Process inline code (`code`)
+        # Wrap with special markers that are visible in plain text
+        md_content = re.sub(
+            r'`([^`]+)`',
+            r'⟨ \1 ⟩',
+            md_content
+        )
+
+        return md_content
+
+    @staticmethod
+    def prepare_for_upload(md_file: Path, format_code: bool = True) -> dict:
+        """
+        Prepare markdown file for upload with optional code formatting
 
         Args:
             md_file: Path to markdown file
+            format_code: Whether to apply code formatting (default: True)
 
         Returns:
-            Dictionary with file metadata
+            Dictionary with file metadata and preprocessed content path
         """
-        return {
-            'name': md_file.stem,
-            'mimeType': 'text/markdown',
-            'description': f'Converted from {md_file.name}'
-        }
+        if format_code:
+            # Read and preprocess markdown
+            with open(md_file, 'r', encoding='utf-8') as f:
+                md_content = f.read()
+
+            # Preprocess to make code blocks readable
+            processed_content = MarkdownConverter.preprocess_markdown_for_google_docs(md_content)
+
+            # Create temporary file with processed content
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8')
+            temp_file.write(processed_content)
+            temp_file.close()
+
+            return {
+                'name': md_file.stem,
+                'mimeType': 'text/markdown',
+                'description': f'Converted from {md_file.name}',
+                'temp_file': temp_file.name  # Track temp file for cleanup
+            }
+        else:
+            return {
+                'name': md_file.stem,
+                'mimeType': 'text/markdown',
+                'description': f'Converted from {md_file.name}'
+            }
 
     @staticmethod
     def get_conversion_mimetype() -> str:
@@ -65,6 +132,16 @@ class FileTypeDetector:
         '.md': MarkdownConverter,
         '.markdown': MarkdownConverter,
         '.csv': CSVConverter,
+        # Code files - treat as markdown for formatted display
+        '.php': MarkdownConverter,
+        '.py': MarkdownConverter,
+        '.js': MarkdownConverter,
+        '.ts': MarkdownConverter,
+        '.tsx': MarkdownConverter,
+        '.jsx': MarkdownConverter,
+        '.json': MarkdownConverter,
+        '.yml': MarkdownConverter,
+        '.yaml': MarkdownConverter,
     }
 
     @classmethod

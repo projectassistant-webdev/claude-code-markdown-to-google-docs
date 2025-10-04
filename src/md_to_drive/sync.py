@@ -10,22 +10,29 @@ from googleapiclient.errors import HttpError
 
 from .auth import GoogleAuthenticator
 from .converter import FileTypeDetector, MarkdownConverter, CSVConverter
+from .cache import SyncCache
 
 
 class GoogleDriveSync:
     """Main sync class for uploading files to Google Drive"""
 
-    def __init__(self, credentials_file='credentials.json', folder_id: Optional[str] = None):
+    def __init__(self, credentials_file='credentials.json', folder_id: Optional[str] = None, use_cache: bool = True):
         """
         Initialize Google Drive sync
 
         Args:
             credentials_file: Path to service account JSON
             folder_id: Optional Google Drive folder ID to sync to
+            use_cache: Whether to use caching system (default: True)
         """
         self.auth = GoogleAuthenticator(credentials_file)
         self.service = self.auth.authenticate()
         self.folder_id = folder_id or os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+        self.use_cache = use_cache
+        self.cache = SyncCache() if use_cache else None
+
+        if self.use_cache:
+            self.cache.load()
 
     def get_or_create_folder(self, name: str, parent_id: Optional[str] = None) -> str:
         """
@@ -140,6 +147,16 @@ class GoogleDriveSync:
         md_file = Path(md_file)
         folder_id = folder_id or self.folder_id or 'root'
 
+        # Check cache
+        if self.use_cache:
+            should_sync, reason = self.cache.should_sync(md_file)
+            if not should_sync:
+                print(f"⏭️  Skipped: {md_file} ({reason})")
+                return self.cache.cache[str(md_file)].get('drive_id')
+            print(f"📤 Syncing: {md_file} ({reason})")
+        else:
+            print(f"📤 Syncing: {md_file}")
+
         converter = MarkdownConverter()
         file_metadata = converter.prepare_for_upload(md_file)
 
@@ -147,6 +164,7 @@ class GoogleDriveSync:
             file_metadata['name'] = custom_name
 
         file_name = file_metadata['name']
+        temp_file = file_metadata.get('temp_file')  # Get temp file if code formatting was applied
 
         try:
             # Check if file already exists
@@ -160,7 +178,10 @@ class GoogleDriveSync:
             ).execute()
 
             files = results.get('files', [])
-            media = MediaFileUpload(str(md_file), mimetype='text/markdown', resumable=True)
+
+            # Use temp file if available (code formatting), otherwise use original
+            upload_file = temp_file if temp_file else str(md_file)
+            media = MediaFileUpload(upload_file, mimetype='text/markdown', resumable=True)
 
             if files:
                 # Update existing file
@@ -183,9 +204,20 @@ class GoogleDriveSync:
                 ).execute()
                 print(f"✅ Created: {md_file} → Google Doc (ID: {doc['id']})")
 
+            # Update cache
+            if self.use_cache:
+                self.cache.update(md_file, doc['id'])
+
+            # Clean up temp file
+            if temp_file and os.path.exists(temp_file):
+                os.unlink(temp_file)
+
             return doc['id']
 
         except HttpError as error:
+            # Clean up temp file on error
+            if temp_file and os.path.exists(temp_file):
+                os.unlink(temp_file)
             raise Exception(f"Error syncing {md_file}: {error}")
 
     def csv_to_sheet(self, csv_file: Path, folder_id: Optional[str] = None, custom_name: Optional[str] = None) -> str:
@@ -319,4 +351,13 @@ class GoogleDriveSync:
             except Exception as e:
                 print(f"❌ Error syncing {file_path}: {e}")
 
+        # Save cache after syncing directory
+        if self.use_cache:
+            self.cache.save()
+
         return synced_files
+
+    def finalize(self):
+        """Save cache before shutdown"""
+        if self.use_cache and self.cache:
+            self.cache.save()
